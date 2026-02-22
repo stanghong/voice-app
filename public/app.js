@@ -17,79 +17,97 @@ let lastSpeechTime = null;
 let savedNotes = [];
 
 // Recording
-recordBtn.addEventListener('click', async () => {
+recordBtn.addEventListener('click', () => {
   if (!isRecording) {
-    await startRecording();
+    startRecording();
   } else {
     stopRecording();
   }
 });
 
-async function startRecording() {
-  // Create new recognition instance each time (fixes iOS issue)
+function startRecording() {
+  // Check for iOS Safari
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
-    setStatus('Speech recognition not supported on this browser.', true);
+    setStatus('Speech recognition not supported on this device/browser.', true);
     return;
   }
 
+  // Create fresh instance
   try {
     recognition = new SpeechRecognition();
+  } catch (e) {
+    setStatus('Cannot create speech recognition. Check browser settings.', true);
+    return;
+  }
+
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+  recognition.maxAlternatives = 1;
+
+  // iOS specific settings
+  if (isIOS) {
     recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
+  }
 
-    recognition.onresult = (event) => {
-      const now = Date.now();
-      let finalTranscript = '';
-      let interimTranscript = '';
+  recognition.onresult = (event) => {
+    const now = Date.now();
+    let finalTranscript = '';
+    let interimTranscript = '';
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-
-          if (lastSpeechTime && (now - lastSpeechTime) > 2000 && currentTranscript) {
-            currentTranscript += '\n';
-          }
-          lastSpeechTime = now;
-        } else {
-          interimTranscript += transcript;
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        finalTranscript += event.results[i][0].transcript + ' ';
+        if (lastSpeechTime && (now - lastSpeechTime) > 2000 && currentTranscript) {
+          currentTranscript += '\n';
         }
-      }
-
-      if (finalTranscript) {
-        currentTranscript = currentTranscript + finalTranscript.trim() + ' ';
-        transcriptionBox.textContent = currentTranscript;
-      }
-
-      if (interimTranscript) {
-        transcriptionBox.textContent = currentTranscript + interimTranscript;
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.log('Speech error:', event.error);
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        setStatus('Please allow microphone in iPhone Settings > Safari > Speech Recognition', true);
-      } else if (event.error === 'no-speech') {
-        // Ignore
+        lastSpeechTime = now;
       } else {
-        setStatus('Error: ' + event.error, true);
+        interimTranscript += event.results[i][0].transcript;
       }
-    };
+    }
 
-    recognition.onend = () => {
-      // Don't auto-restart on iOS - causes issues
-    };
+    if (finalTranscript) {
+      currentTranscript += finalTranscript.trim() + ' ';
+      transcriptionBox.textContent = currentTranscript;
+    }
+    if (interimTranscript) {
+      transcriptionBox.textContent = currentTranscript + interimTranscript;
+    }
+  };
 
-    await new Promise((resolve, reject) => {
-      recognition.onstart = resolve;
-      recognition.onerror = reject;
-      recognition.start();
-    });
+  recognition.onerror = (event) => {
+    console.log('Speech error:', event.error);
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      setStatus('Microphone not allowed. Go to Settings > Safari > Speech Recognition > Allow', true);
+    } else if (event.error === 'network') {
+      setStatus('Network error. Speech recognition requires internet.', true);
+    } else if (event.error !== 'no-speech') {
+      setStatus('Error: ' + event.error, true);
+    }
+  };
 
+  recognition.onend = () => {
+    // On iOS, if still should be recording, restart
+    if (isRecording && recognition) {
+      setTimeout(() => {
+        if (isRecording && recognition) {
+          try {
+            recognition.start();
+          } catch (e) {
+            console.log('Restart failed:', e);
+          }
+        }
+      }, 100);
+    }
+  };
+
+  // Start recognition
+  try {
+    recognition.start();
     isRecording = true;
     recordBtn.classList.add('recording');
     recordLabel.textContent = 'Stop';
@@ -98,35 +116,47 @@ async function startRecording() {
     setStatus('Listening...');
 
     if (!currentTranscript) {
-      currentTranscript = '[Started]\n\n';
+      currentTranscript = '[' + new Date().toLocaleString() + ']\n\n';
       transcriptionBox.textContent = currentTranscript;
     }
-
   } catch (err) {
-    console.log('Start error:', err);
-    if (err.message.includes('service not allowed') || err.message.includes('not-allowed')) {
-      setStatus('Please allow microphone in iPhone Settings > Safari > Speech Recognition', true);
+    console.log('Start failed:', err);
+    isRecording = false;
+    if (err.message && err.message.includes('already started')) {
+      // Already started, try to stop first
+      try { recognition.stop(); } catch(e) {}
+      setTimeout(() => {
+        try {
+          recognition.start();
+          isRecording = true;
+          recordBtn.classList.add('recording');
+          recordLabel.textContent = 'Stop';
+          startTimer();
+          startVisualizer();
+          setStatus('Listening...');
+        } catch(e2) {
+          setStatus('Please refresh and try again.', true);
+        }
+      }, 500);
     } else {
-      setStatus('Error starting. Try refreshing the page.', true);
+      setStatus('Cannot start. Check microphone permissions.', true);
     }
   }
 }
 
 function stopRecording() {
-  if (recognition) {
-    try {
-      recognition.stop();
-    } catch (e) {
-      console.log('Stop error:', e);
-    }
-    recognition = null;
-  }
-
   isRecording = false;
   recordBtn.classList.remove('recording');
   recordLabel.textContent = 'Start';
   stopTimer();
   stopVisualizer();
+
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch (e) {}
+    recognition = null;
+  }
 
   if (currentTranscript) {
     setStatus('Recording complete.');
@@ -143,66 +173,46 @@ saveBtn.addEventListener('click', async () => {
   const timestamp = new Date().toLocaleString();
   const noteContent = `Voice Notes - ${timestamp}\n${'='.repeat(30)}\n\n${currentTranscript}`;
 
-  const note = {
-    timestamp: timestamp,
-    transcript: currentTranscript
-  };
-
-  savedNotes.unshift(note);
+  savedNotes.unshift({ timestamp, transcript: currentTranscript });
   renderSavedNotes();
 
   if (navigator.share) {
     try {
-      await navigator.share({
-        title: 'Voice Notes - ' + timestamp,
-        text: noteContent
-      });
+      await navigator.share({ title: 'Voice Notes - ' + timestamp, text: noteContent });
       setStatus('Shared!');
       return;
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        console.log('Share failed:', e);
-      }
-    }
+    } catch (e) {}
   }
 
   try {
     await navigator.clipboard.writeText(noteContent);
-    setStatus('Copied! Paste in Notes.');
+    setStatus('Copied to clipboard!');
   } catch (e) {
-    setStatus('Notes saved.');
+    setStatus('Saved.');
   }
 });
 
 function renderSavedNotes() {
-  if (savedNotes.length === 0) {
+  if (!savedNotes.length) {
     savedNotesBox.innerHTML = '<p class="placeholder">No saved notes yet...</p>';
     return;
   }
-
-  savedNotesBox.innerHTML = savedNotes.map((note) => `
+  savedNotesBox.innerHTML = savedNotes.map(n => `
     <div class="note-item">
-      <div class="timestamp">${note.timestamp}</div>
-      <div class="note-content">${escapeHtml(note.transcript ? note.transcript.substring(0, 300) : '')}${note.transcript && note.transcript.length > 300 ? '...' : ''}</div>
+      <div class="timestamp">${n.timestamp}</div>
+      <div class="note-content">${escapeHtml(n.transcript.substring(0, 300))}${n.transcript.length > 300 ? '...' : ''}</div>
     </div>
   `).join('');
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 
 // Reset
 resetBtn.addEventListener('click', () => {
   currentTranscript = '';
-  lastSpeechTime = null;
-
   transcriptionBox.innerHTML = '<p class="placeholder">Your transcribed text will appear here...</p>';
   stopTimer();
   timer.textContent = '00:00';
-  seconds = 0;
   clearCanvas();
   setStatus('Ready.');
 });
@@ -211,59 +221,37 @@ resetBtn.addEventListener('click', () => {
 function startTimer() {
   seconds = 0;
   updateTimerDisplay();
-  timerInterval = setInterval(() => {
-    seconds++;
-    updateTimerDisplay();
-  }, 1000);
+  timerInterval = setInterval(() => { seconds++; updateTimerDisplay(); }, 1000);
 }
-
-function stopTimer() {
-  clearInterval(timerInterval);
-}
-
+function stopTimer() { clearInterval(timerInterval); }
 function updateTimerDisplay() {
-  const m = String(Math.floor(seconds / 60)).padStart(2, '0');
-  const s = String(seconds % 60).padStart(2, '0');
-  timer.textContent = `${m}:${s}`;
+  timer.textContent = String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
 }
 
 // Visualizer
 let visualizerInterval = null;
-
 function startVisualizer() {
   const ctx = visualizer.getContext('2d');
   let phase = 0;
-
   function draw() {
     if (!isRecording) return;
-
     ctx.fillStyle = '#16213e';
     ctx.fillRect(0, 0, visualizer.width, visualizer.height);
-
-    const barCount = 40;
-    const barWidth = visualizer.width / barCount - 2;
+    const barCount = 40, barWidth = visualizer.width / barCount - 2;
     phase += 0.1;
-
     for (let i = 0; i < barCount; i++) {
       const height = (Math.sin(i * 0.3 + phase) + 1) * 0.5 * visualizer.height * 0.6 + 10;
-      const hue = 200 + i * 3;
-      ctx.fillStyle = `hsl(${hue}, 70%, 55%)`;
+      ctx.fillStyle = `hsl(${200 + i * 3}, 70%, 55%)`;
       ctx.fillRect(i * (barWidth + 2), visualizer.height - height, barWidth, height);
     }
-
     visualizerInterval = requestAnimationFrame(draw);
   }
   draw();
 }
-
 function stopVisualizer() {
-  if (visualizerInterval) {
-    cancelAnimationFrame(visualizerInterval);
-    visualizerInterval = null;
-  }
+  if (visualizerInterval) { cancelAnimationFrame(visualizerInterval); visualizerInterval = null; }
   clearCanvas();
 }
-
 function clearCanvas() {
   const ctx = visualizer.getContext('2d');
   ctx.fillStyle = '#16213e';
