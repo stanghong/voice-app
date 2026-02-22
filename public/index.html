@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Transcription & Translation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Voice Transcription & Translation</h1>
+    <p class="subtitle">Uses browser's built-in Speech Recognition (free, no API key needed)</p>
+
+    <div class="recording-section">
+      <button id="recordBtn" class="record-btn">
+        <span class="record-icon"></span>
+        <span id="recordLabel">Start Recording</span>
+      </button>
+      <button id="resetBtn" class="reset-btn">Reset</button>
+      <div id="timer" class="timer">00:00</div>
+      <canvas id="visualizer" width="400" height="80"></canvas>
+    </div>
+
+    <div class="result-section">
+      <div class="panel">
+        <h2>Transcription (English)</h2>
+        <div id="transcription" class="output-box">
+          <p class="placeholder">Your transcribed text will appear here...</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Translation (Chinese)</h2>
+        <button id="translateBtn" class="translate-btn" disabled>Translate to Chinese</button>
+        <div id="translation" class="output-box">
+          <p class="placeholder">Chinese translation will appear here...</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
