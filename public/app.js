@@ -21,7 +21,7 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 const isSupported = !!SpeechRecognition;
 
 if (!isSupported) {
-  setStatus('Speech recognition not supported in this browser. Use Chrome or Edge.', true);
+  setStatus('Speech recognition not supported. Use Safari or Chrome.', true);
   recordBtn.disabled = true;
 }
 
@@ -66,9 +66,10 @@ function initRecognition() {
 
   recognition.onerror = (event) => {
     console.error('Speech recognition error:', event.error);
-    if (event.error === 'not-allowed') {
-      setStatus('Microphone access denied.', true);
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      setStatus('Microphone access denied. Please allow in Settings.', true);
       stopRecording();
+      recordBtn.disabled = true;
     } else if (event.error !== 'no-speech') {
       setStatus(`Error: ${event.error}`, true);
     }
@@ -148,7 +149,7 @@ async function addAutoInfo() {
   });
   infoParts.push(today);
 
-  // Get weather
+  // Get weather (skip on iOS if fails)
   try {
     const weatherRes = await fetch('https://wttr.in/?format=j1');
     if (weatherRes.ok) {
@@ -159,10 +160,10 @@ async function addAutoInfo() {
       infoParts.push(`${location}: ${current.temp_F}°F, ${current.weatherDesc[0].value}`);
     }
   } catch (e) {
-    console.log('Weather error:', e.message);
+    console.log('Weather skipped:', e.message);
   }
 
-  // Get location
+  // Get location (skip on iOS if fails)
   if (navigator.geolocation) {
     try {
       const position = await new Promise((resolve, reject) => {
@@ -183,7 +184,7 @@ async function addAutoInfo() {
         infoParts.push(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
       }
     } catch (e) {
-      console.log('Location error:', e.message);
+      console.log('Location skipped:', e.message);
     }
   }
 
