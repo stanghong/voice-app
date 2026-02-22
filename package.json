@@ -1,7 +1,7 @@
 {
-  "name": "voice-transcription-app",
+  "name": "voice-notes",
   "version": "1.0.0",
-  "description": "Voice transcription and translation web app using MiniMax API",
+  "description": "Voice notes app with transcription and translation",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,8 +9,9 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "multer": "^1.4.5-lts.1",
-    "dotenv": "^16.3.1",
-    "form-data": "^4.0.0"
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
