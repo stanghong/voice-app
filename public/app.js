@@ -5,7 +5,9 @@ const visualizer = document.getElementById('visualizer');
 const transcriptionBox = document.getElementById('transcription');
 const translationBox = document.getElementById('translation');
 const translateBtn = document.getElementById('translateBtn');
+const saveBtn = document.getElementById('saveBtn');
 const resetBtn = document.getElementById('resetBtn');
+const savedNotesBox = document.getElementById('savedNotes');
 const statusEl = document.getElementById('status');
 
 let recognition = null;
@@ -13,8 +15,12 @@ let isRecording = false;
 let timerInterval = null;
 let seconds = 0;
 let currentTranscript = '';
+let currentTranslation = '';
+let currentWordByWord = '';
+let currentSummaryEn = '';
+let currentSummaryCn = '';
 let lastSpeechTime = null;
-let silenceStartTime = null;
+let savedNotes = [];
 
 // Check browser support
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -55,7 +61,8 @@ function initRecognition() {
     }
 
     if (finalTranscript) {
-      currentTranscript = (currentTranscript + finalTranscript).trim();
+      // Append to existing transcript (continue recording)
+      currentTranscript = currentTranscript ? currentTranscript + finalTranscript.trim() + ' ' : currentTranscript + finalTranscript.trim();
       transcriptionBox.textContent = currentTranscript;
       translateBtn.disabled = false;
     }
@@ -77,7 +84,6 @@ function initRecognition() {
 
   recognition.onend = () => {
     if (isRecording) {
-      // Restart if still recording
       try {
         recognition.start();
       } catch (e) {
@@ -102,23 +108,41 @@ function startRecording() {
   if (!recognition) initRecognition();
   if (!recognition) return;
 
-  // Reset transcript for new recording
-  currentTranscript = '';
-  lastSpeechTime = Date.now();
+  // Don't reset transcript - continue from where we left off
+  if (!currentTranscript) {
+    lastSpeechTime = Date.now();
+  }
 
   try {
     recognition.start();
     isRecording = true;
     recordBtn.classList.add('recording');
-    recordLabel.textContent = 'Stop Recording';
+    recordLabel.textContent = 'Stop';
     startTimer();
     startVisualizer();
     setStatus('Listening...');
 
-    // Auto-add date, weather, and location once at start
-    addAutoInfo();
+    // Auto-add date, weather, and location once at start (only if fresh start)
+    if (!currentTranscript || currentTranscript.trim() === '') {
+      addAutoInfo();
+    }
   } catch (err) {
     setStatus('Error starting recognition: ' + err.message, true);
+  }
+}
+
+function stopRecording() {
+  if (recognition) {
+    recognition.stop();
+  }
+  isRecording = false;
+  recordBtn.classList.remove('recording');
+  recordLabel.textContent = 'Start';
+  stopTimer();
+  stopVisualizer();
+
+  if (currentTranscript) {
+    setStatus('Recording complete.');
   }
 }
 
@@ -180,26 +204,11 @@ async function addAutoInfo() {
   }
 }
 
-function stopRecording() {
-  if (recognition) {
-    recognition.stop();
-  }
-  isRecording = false;
-  recordBtn.classList.remove('recording');
-  recordLabel.textContent = 'Start Recording';
-  stopTimer();
-  stopVisualizer();
-
-  if (currentTranscript) {
-    setStatus('Recording complete.');
-  }
-}
-
 // Translation
 translateBtn.addEventListener('click', async () => {
   if (!currentTranscript) return;
 
-  setStatus('Translating to Chinese...', false, true);
+  setStatus('Translating...', false, true);
   translateBtn.disabled = true;
 
   try {
@@ -212,13 +221,126 @@ translateBtn.addEventListener('click', async () => {
 
     if (!res.ok) throw new Error(data.error || 'Translation failed');
 
-    translationBox.textContent = data.translation;
+    // Store translation
+    currentWordByWord = data.wordByWord || '';
+    currentSummaryEn = '';
+    currentSummaryCn = '';
+
+    // Display translation only
+    let displayText = '';
+    if (currentWordByWord) {
+      displayText = `[Translation]\n${currentWordByWord}`;
+    }
+
+    translationBox.textContent = displayText;
     setStatus('Translation complete.');
   } catch (err) {
     setStatus(`Error: ${err.message}`, true);
   } finally {
     translateBtn.disabled = false;
   }
+});
+
+// Save Notes
+saveBtn.addEventListener('click', async () => {
+  if (!currentTranscript && !currentWordByWord) {
+    setStatus('Nothing to save!', true);
+    return;
+  }
+
+  const timestamp = new Date().toLocaleString();
+
+  // Format note for sharing
+  const noteContent = formatNoteForExport(timestamp);
+
+  // Save to local display
+  const note = {
+    timestamp: timestamp,
+    transcript: currentTranscript,
+    wordByWord: currentWordByWord,
+    summaryEn: currentSummaryEn,
+    summaryCn: currentSummaryCn
+  };
+
+  savedNotes.unshift(note);
+  renderSavedNotes();
+
+  // Try to use iOS Share Sheet
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'Voice Notes - ' + timestamp,
+        text: noteContent
+      });
+      setStatus('Shared!');
+      return;
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.log('Share failed:', e);
+      }
+    }
+  }
+
+  // Fallback: Copy to clipboard
+  try {
+    await navigator.clipboard.writeText(noteContent);
+    setStatus('Copied! Paste in Notes app.');
+  } catch (e) {
+    setStatus('Notes saved locally.');
+  }
+});
+
+function formatNoteForExport(timestamp) {
+  let content = `Voice Notes - ${timestamp}\n${'='.repeat(30)}\n\n`;
+
+  if (currentTranscript) {
+    content += `【Transcript】\n${currentTranscript}\n\n`;
+  }
+  if (currentWordByWord) {
+    content += `【Translation - Chinese】\n${currentWordByWord}`;
+  }
+
+  return content;
+}
+
+function renderSavedNotes() {
+  if (savedNotes.length === 0) {
+    savedNotesBox.innerHTML = '<p class="placeholder">No saved notes yet...</p>';
+    return;
+  }
+
+  savedNotesBox.innerHTML = savedNotes.map((note, index) => `
+    <div class="note-item">
+      <div class="timestamp">${note.timestamp}</div>
+      <div class="note-content">${escapeHtml(note.transcript ? note.transcript.substring(0, 200) : '')}${note.transcript && note.transcript.length > 200 ? '...' : ''}</div>
+      ${note.wordByWord ? `<div class="note-translation">翻译: ${note.wordByWord.substring(0, 100)}...</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Reset
+resetBtn.addEventListener('click', () => {
+  currentTranscript = '';
+  currentTranslation = '';
+  currentWordByWord = '';
+  currentSummaryEn = '';
+  currentSummaryCn = '';
+  lastSpeechTime = null;
+
+  transcriptionBox.innerHTML = '<p class="placeholder">Your transcribed text will appear here...</p>';
+  translationBox.innerHTML = '<p class="placeholder">Translation will appear here...</p>';
+  translateBtn.disabled = true;
+  stopTimer();
+  timer.textContent = '00:00';
+  seconds = 0;
+  clearCanvas();
+  setStatus('Cleared. Ready for new recording.');
 });
 
 // Timer
@@ -241,7 +363,7 @@ function updateTimerDisplay() {
   timer.textContent = `${m}:${s}`;
 }
 
-// Simple visualizer using Speech Recognition events
+// Simple visualizer
 let visualizerInterval = null;
 
 function startVisualizer() {
@@ -254,7 +376,6 @@ function startVisualizer() {
     ctx.fillStyle = '#16213e';
     ctx.fillRect(0, 0, visualizer.width, visualizer.height);
 
-    // Animated bars
     const barCount = 40;
     const barWidth = visualizer.width / barCount - 2;
     phase += 0.1;
@@ -290,23 +411,3 @@ function setStatus(msg, isError = false, loading = false) {
   statusEl.textContent = msg;
   statusEl.className = 'status' + (isError ? ' error' : '') + (loading ? ' loading' : '');
 }
-
-// Clear buttons
-function clearTranscript() {
-  currentTranscript = '';
-  lastSpeechTime = null;
-  silenceStartTime = null;
-  transcriptionBox.innerHTML = '<p class="placeholder">Your transcribed text will appear here...</p>';
-  translationBox.innerHTML = '<p class="placeholder">Chinese translation will appear here...</p>';
-  translateBtn.disabled = true;
-}
-
-// Reset
-resetBtn.addEventListener('click', () => {
-  clearTranscript();
-  stopTimer();
-  timer.textContent = '00:00';
-  seconds = 0;
-  clearCanvas();
-  setStatus('Reset complete.');
-});
