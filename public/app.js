@@ -16,15 +16,25 @@ let currentTranscript = '';
 let lastSpeechTime = null;
 let savedNotes = [];
 
-// Initialize speech recognition
-function initRecognition() {
-  try {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setStatus('Speech recognition not available on this device.', true);
-      return null;
-    }
+// Recording
+recordBtn.addEventListener('click', async () => {
+  if (!isRecording) {
+    await startRecording();
+  } else {
+    stopRecording();
+  }
+});
 
+async function startRecording() {
+  // Create new recognition instance each time (fixes iOS issue)
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    setStatus('Speech recognition not supported on this browser.', true);
+    return;
+  }
+
+  try {
     recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -50,7 +60,7 @@ function initRecognition() {
       }
 
       if (finalTranscript) {
-        currentTranscript = currentTranscript ? currentTranscript + finalTranscript.trim() + ' ' : currentTranscript + finalTranscript.trim();
+        currentTranscript = currentTranscript + finalTranscript.trim() + ' ';
         transcriptionBox.textContent = currentTranscript;
       }
 
@@ -62,60 +72,24 @@ function initRecognition() {
     recognition.onerror = (event) => {
       console.log('Speech error:', event.error);
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        setStatus('Please allow microphone in Settings > Safari > Microphone', true);
+        setStatus('Please allow microphone in iPhone Settings > Safari > Speech Recognition', true);
       } else if (event.error === 'no-speech') {
-        // Ignore no-speech errors
+        // Ignore
       } else {
         setStatus('Error: ' + event.error, true);
       }
     };
 
     recognition.onend = () => {
-      if (isRecording) {
-        try {
-          recognition.start();
-        } catch (e) {
-          console.log('Restart error:', e);
-        }
-      }
+      // Don't auto-restart on iOS - causes issues
     };
 
-    return recognition;
-  } catch (e) {
-    console.log('Init error:', e);
-    setStatus('Speech recognition not available.', true);
-    return null;
-  }
-}
+    await new Promise((resolve, reject) => {
+      recognition.onstart = resolve;
+      recognition.onerror = reject;
+      recognition.start();
+    });
 
-// Try to init on load
-recognition = initRecognition();
-
-// Recording
-recordBtn.addEventListener('click', () => {
-  if (!isRecording) {
-    startRecording();
-  } else {
-    stopRecording();
-  }
-});
-
-function startRecording() {
-  if (!recognition) {
-    recognition = initRecognition();
-  }
-
-  if (!recognition) {
-    setStatus('Speech recognition not available. Try Chrome or Safari.', true);
-    return;
-  }
-
-  if (!currentTranscript) {
-    lastSpeechTime = Date.now();
-  }
-
-  try {
-    recognition.start();
     isRecording = true;
     recordBtn.classList.add('recording');
     recordLabel.textContent = 'Stop';
@@ -123,12 +97,18 @@ function startRecording() {
     startVisualizer();
     setStatus('Listening...');
 
-    if (!currentTranscript || currentTranscript.trim() === '') {
-      addAutoInfo().catch(e => console.log('Auto info error:', e));
+    if (!currentTranscript) {
+      currentTranscript = '[Started]\n\n';
+      transcriptionBox.textContent = currentTranscript;
     }
+
   } catch (err) {
     console.log('Start error:', err);
-    setStatus('Error starting. Please try again.', true);
+    if (err.message.includes('service not allowed') || err.message.includes('not-allowed')) {
+      setStatus('Please allow microphone in iPhone Settings > Safari > Speech Recognition', true);
+    } else {
+      setStatus('Error starting. Try refreshing the page.', true);
+    }
   }
 }
 
@@ -139,7 +119,9 @@ function stopRecording() {
     } catch (e) {
       console.log('Stop error:', e);
     }
+    recognition = null;
   }
+
   isRecording = false;
   recordBtn.classList.remove('recording');
   recordLabel.textContent = 'Start';
@@ -148,80 +130,6 @@ function stopRecording() {
 
   if (currentTranscript) {
     setStatus('Recording complete.');
-  }
-}
-
-async function addAutoInfo() {
-  try {
-    const infoParts = [];
-
-    // Get date
-    const today = new Date().toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    infoParts.push(today);
-
-    // Get weather (fire and forget)
-    fetch('https://wttr.in/?format=j1')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.current_condition && data.nearest_area) {
-          const current = data.current_condition[0];
-          const area = data.nearest_area[0];
-          const location = area?.areaName?.[0]?.value || area?.region?.[0]?.value || 'Unknown';
-          const weather = `${location}: ${current.temp_F}°F, ${current.weatherDesc[0].value}`;
-
-          if (currentTranscript.startsWith('[')) {
-            // Insert weather before the blank line
-            const lines = currentTranscript.split('\n\n');
-            if (lines.length > 0) {
-              lines.splice(1, 0, weather);
-              currentTranscript = lines.join('\n\n');
-              transcriptionBox.textContent = currentTranscript;
-            }
-          }
-        }
-      })
-      .catch(e => console.log('Weather skipped:', e.message));
-
-    // Get location (fire and forget)
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-            .then(res => res.json())
-            .then(data => {
-              if (data && data.address) {
-                const city = data.address.city || data.address.town || data.address.village || '';
-                const state = data.address.state || '';
-                const country = data.address.country || '';
-                const locationStr = [city, state, country].filter(Boolean).join(', ');
-
-                if (currentTranscript.startsWith('[')) {
-                  const lines = currentTranscript.split('\n\n');
-                  if (lines.length > 0) {
-                    lines.splice(1, 0, locationStr);
-                    currentTranscript = lines.join('\n\n');
-                    transcriptionBox.textContent = currentTranscript;
-                  }
-                }
-              }
-            })
-            .catch(e => console.log('Geocode skipped:', e.message));
-        },
-        (err) => console.log('Location skipped:', err.message),
-        { timeout: 5000 }
-      );
-    }
-
-    currentTranscript = '[Recording started]\n\n';
-    transcriptionBox.textContent = currentTranscript;
-  } catch (e) {
-    console.log('Auto info error:', e);
   }
 }
 
@@ -243,7 +151,6 @@ saveBtn.addEventListener('click', async () => {
   savedNotes.unshift(note);
   renderSavedNotes();
 
-  // Try iOS Share Sheet
   if (navigator.share) {
     try {
       await navigator.share({
@@ -259,10 +166,9 @@ saveBtn.addEventListener('click', async () => {
     }
   }
 
-  // Fallback: Copy to clipboard
   try {
     await navigator.clipboard.writeText(noteContent);
-    setStatus('Copied! Paste in Notes app.');
+    setStatus('Copied! Paste in Notes.');
   } catch (e) {
     setStatus('Notes saved.');
   }
@@ -364,7 +270,6 @@ function clearCanvas() {
   ctx.fillRect(0, 0, visualizer.width, visualizer.height);
 }
 
-// Status
 function setStatus(msg, isError = false) {
   statusEl.textContent = msg;
   statusEl.className = 'status' + (isError ? ' error' : '');
