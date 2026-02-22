@@ -131,7 +131,7 @@ canvas {
   font-style: italic;
 }
 
-.translate-btn, .reset-btn, .save-btn {
+.reset-btn, .save-btn {
   padding: 10px 24px;
   border: none;
   border-radius: 8px;
@@ -151,10 +151,6 @@ canvas {
   background: #0f3460;
 }
 
-.translate-btn:hover:not(:disabled) {
-  background: #6a42a0;
-}
-
 .reset-btn:hover:not(:disabled) {
   background: #c73a52;
 }
@@ -163,7 +159,7 @@ canvas {
   background: #1a4a7a;
 }
 
-.translate-btn:disabled, .reset-btn:disabled, .save-btn:disabled {
+.reset-btn:disabled, .save-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
