@@ -9,14 +9,14 @@
 <body>
   <div class="container">
     <h1>Voice Notes</h1>
-    <p class="subtitle">Record, Transcribe, Translate & Save</p>
+    <p class="subtitle">Record long audio, save locally, transcribe later</p>
 
     <div class="recording-section">
       <button id="recordBtn" class="record-btn">
         <span class="record-icon"></span>
-        <span id="recordLabel">Start Recording</span>
+        <span id="recordLabel">Record</span>
       </button>
-      <button id="resetBtn" class="reset-btn">Clear All</button>
+      <button id="resetBtn" class="reset-btn">Clear</button>
     </div>
 
     <div class="timer-section">
@@ -26,15 +26,22 @@
 
     <div class="result-section">
       <div class="panel">
+        <h2>Recording</h2>
+        <div class="button-row">
+          <button id="saveAudioBtn" class="save-btn">Save Audio</button>
+          <button id="saveBtn" class="transcribe-btn">Transcribe</button>
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Transcript</h2>
         <div id="transcription" class="output-box">
-          <p class="placeholder">Your transcribed text will appear here...</p>
+          <p class="placeholder">Recording will appear here after transcription...</p>
         </div>
       </div>
 
       <div class="panel">
         <h2>Saved Notes</h2>
-        <button id="saveBtn" class="save-btn">Save to Notes</button>
         <div id="savedNotes" class="output-box notes-list">
           <p class="placeholder">No saved notes yet...</p>
         </div>
